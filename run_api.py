@@ -49,7 +49,7 @@ def load_models():
     try:
         print("Loading FLUX model...")
         flux_pipeline = FluxPipeline.from_pretrained(
-            "black-forest-labs/FLUX.1-schnell",
+            "Kijai/flux-fp8",
             torch_dtype=torch.bfloat16,
         )
         flux_pipeline.enable_model_cpu_offload()
