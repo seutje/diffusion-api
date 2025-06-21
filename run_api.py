@@ -49,7 +49,7 @@ def load_models():
     try:
         print("Loading FLUX model...")
         flux_pipeline = FluxPipeline.from_pretrained(
-            "black-forest-labs/FLUX.1-schnell",
+            "black-forest-labs/FLUX.1-dev",
             torch_dtype=torch.bfloat16,
         )
         flux_pipeline.enable_model_cpu_offload()
@@ -91,9 +91,9 @@ def generate_image():
             prompt=prompt,
             height=1024,
             width=1024,
-            guidance_scale=3.5,
+            guidance_scale=0.0,
             num_inference_steps=4,
-            max_sequence_length=512,
+            max_sequence_length=256,
             generator=torch.Generator("cpu").manual_seed(seed)
         ).images[0]
         print("Image generated.")
@@ -138,9 +138,9 @@ def generate_and_upscale_image():
             prompt=prompt,
             height=1024,
             width=1024,
-            guidance_scale=3.5,
+            guidance_scale=0.0,
             num_inference_steps=4,
-            max_sequence_length=512,
+            max_sequence_length=256,
             generator=torch.Generator("cpu").manual_seed(seed)
         ).images[0]
         print("Image generated.")
