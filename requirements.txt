@@ -1,0 +1,7 @@
+Flask==2.3.3
+diffusers==0.30.0
+torch==2.3.0 # Or your specific PyTorch version with CUDA support
+accelerate==0.31.0
+bitsandbytes==0.43.1 # Or the version compatible with your CUDA setup
+sentencepiece==0.2.0
+Pillow==10.3.0 # For PIL.Image
