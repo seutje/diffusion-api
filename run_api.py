@@ -53,11 +53,11 @@ def load_models():
     try:
         print("Loading FLUX model components...")
 
-        bfl_repo = "black-forest-labs/FLUX.1-dev"
+        bfl_repo = "black-forest-labs/FLUX.1-schnell"
         dtype = torch.bfloat16
 
         transformer = FluxTransformer2DModel.from_single_file(
-            "https://huggingface.co/Kijai/flux-fp8/blob/main/flux1-dev-fp8.safetensors",
+            "https://huggingface.co/Comfy-Org/flux1-schnell/blob/main/flux1-schnell-fp8.safetensors",
             torch_dtype=dtype,
         )
         quantize(transformer, weights=qfloat8)
