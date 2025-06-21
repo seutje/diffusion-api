@@ -40,43 +40,19 @@ app = Flask(__name__)
 # Global pipeline variable
 flux_pipeline = None
 models_loaded = False
-device = "cpu"
-model_dtype = torch.float32
 
 def load_models():
-    """
-    Loads the FLUX model.
-    This function is called once when the Flask app starts.
-    """
-    global flux_pipeline, models_loaded, device, model_dtype
-
-    if torch.cuda.is_available():
-        device = "cuda"
-        print("CUDA (NVIDIA GPU) found. Using GPU for accelerated inference.")
-        # Check for Ampere or newer for bfloat16 (RTX 4070 is compute capability 8.6)
-        if torch.cuda.get_device_capability()[0] >= 8:
-            model_dtype = torch.bfloat16
-            print("Using torch.bfloat16 for GPU (Ampere+ detected).")
-        else:
-            print("Using torch.float32 for GPU.")
-    elif torch.backends.mps.is_available() and torch.backends.mps.is_built():
-        device = "mps"
-        print("MPS (Apple Silicon GPU) found. Using GPU for accelerated inference.")
-        model_dtype = torch.float32 # MPS typically uses float32
-    else:
-        print("No GPU found. Falling back to CPU. This will be significantly slower.")
+    """Load the FLUX model once at startup."""
+    global flux_pipeline, models_loaded
 
     try:
-        # --- Load FLUX Pipeline ---
-        print(f"Attempting to load FLUX model with dtype={model_dtype}...")
+        print("Loading FLUX model...")
         flux_pipeline = FluxPipeline.from_pretrained(
             "black-forest-labs/FLUX.1-dev",
-            torch_dtype=model_dtype
+            torch_dtype=torch.bfloat16,
         )
-        if device != "cpu":
-            flux_pipeline.to(device)
         flux_pipeline.enable_model_cpu_offload()
-        print(f"FLUX model loaded successfully on {device}.")
+        print("FLUX model loaded successfully.")
 
         models_loaded = True
         print("Model initialized and ready for requests.")
@@ -115,7 +91,7 @@ def generate_image():
             guidance_scale=3.5,
             num_inference_steps=50,
             max_sequence_length=512,
-            generator=torch.Generator(device).manual_seed(0)
+            generator=torch.Generator("cpu").manual_seed(0)
         ).images[0]
         print("Image generated.")
 
@@ -156,7 +132,7 @@ def generate_and_upscale_image():
             guidance_scale=3.5,
             num_inference_steps=50,
             max_sequence_length=512,
-            generator=torch.Generator(device).manual_seed(0)
+            generator=torch.Generator("cpu").manual_seed(0)
         ).images[0]
         print("Image generated.")
 
