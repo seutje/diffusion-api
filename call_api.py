@@ -20,6 +20,8 @@ if response.status_code == 200:
         output_path = "generated_upscaled_api_image.png"
         image.save(output_path)
         print(f"Image successfully generated and saved to {output_path}")
+        if "seed" in result:
+            print(f"Seed used: {result['seed']}")
     else:
         print("Error: 'image_base64' not found in response.")
         print(result)

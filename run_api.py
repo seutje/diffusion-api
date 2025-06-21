@@ -1,6 +1,7 @@
 import os
 import io
 import base64
+import random
 from flask import Flask, request, jsonify
 from PIL import Image
 
@@ -84,6 +85,8 @@ def generate_image():
     try:
         # Generate the image
         print(f"Generating image for prompt: '{prompt}'")
+        seed = random.randint(0, 2**32 - 1)
+        print(f"Using random seed: {seed}")
         generated_image = flux_pipeline(
             prompt=prompt,
             height=1024,
@@ -91,7 +94,7 @@ def generate_image():
             guidance_scale=3.5,
             num_inference_steps=4,
             max_sequence_length=512,
-            generator=torch.Generator("cpu").manual_seed(0)
+            generator=torch.Generator("cpu").manual_seed(seed)
         ).images[0]
         print("Image generated.")
 
@@ -100,7 +103,11 @@ def generate_image():
         generated_image.save(buffered, format="PNG")
         img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-        return jsonify({"image_base64": img_str, "message": "Image generated successfully!"})
+        return jsonify({
+            "image_base64": img_str,
+            "message": "Image generated successfully!",
+            "seed": seed
+        })
 
     except Exception as e:
         print(f"Error during image generation: {e}")
@@ -125,6 +132,8 @@ def generate_and_upscale_image():
     try:
         # Generate the image with FLUX
         print(f"Generating image for prompt: '{prompt}'")
+        seed = random.randint(0, 2**32 - 1)
+        print(f"Using random seed: {seed}")
         upscaled_image = flux_pipeline(
             prompt=prompt,
             height=1024,
@@ -132,7 +141,7 @@ def generate_and_upscale_image():
             guidance_scale=3.5,
             num_inference_steps=4,
             max_sequence_length=512,
-            generator=torch.Generator("cpu").manual_seed(0)
+            generator=torch.Generator("cpu").manual_seed(seed)
         ).images[0]
         print("Image generated.")
 
@@ -141,7 +150,11 @@ def generate_and_upscale_image():
         upscaled_image.save(buffered, format="PNG")
         img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-        return jsonify({"image_base64": img_str, "message": "Image generated successfully!"})
+        return jsonify({
+            "image_base64": img_str,
+            "message": "Image generated successfully!",
+            "seed": seed
+        })
 
     except Exception as e:
         print(f"Error during image generation: {e}")
