@@ -9,10 +9,10 @@ from PIL import Image
 # In a production environment, it's highly recommended to install dependencies
 # using pip and requirements.txt BEFORE running the application.
 try:
-    from diffusers import StableDiffusionPipeline, StableDiffusionUpscalePipeline
+    from diffusers import FluxPipeline
     import torch
-    import accelerate # Required for CPU offload
-    import bitsandbytes # Required for 4-bit and 8-bit quantization
+    import accelerate  # Required for CPU offload
+    import bitsandbytes  # Required for 4-bit and 8-bit quantization
     # Flask is explicitly checked here
     import flask
 except ImportError:
@@ -22,7 +22,7 @@ except ImportError:
     os.system(install_command)
     try:
         # Re-import after installation attempt
-        from diffusers import StableDiffusionPipeline, StableDiffusionUpscalePipeline
+        from diffusers import FluxPipeline
         import torch
         import accelerate
         import bitsandbytes
@@ -37,19 +37,18 @@ except ImportError:
 
 app = Flask(__name__)
 
-# Global variables for the pipelines
-base_pipeline = None
-upscale_pipeline = None
+# Global pipeline variable
+flux_pipeline = None
 models_loaded = False
 device = "cpu"
 model_dtype = torch.float32
 
 def load_models():
     """
-    Loads the Stable Diffusion base and upscaling models.
+    Loads the FLUX model.
     This function is called once when the Flask app starts.
     """
-    global base_pipeline, upscale_pipeline, models_loaded, device, model_dtype
+    global flux_pipeline, models_loaded, device, model_dtype
 
     if torch.cuda.is_available():
         device = "cuda"
@@ -68,33 +67,19 @@ def load_models():
         print("No GPU found. Falling back to CPU. This will be significantly slower.")
 
     try:
-        # --- Load Base Stable Diffusion Pipeline (for 512x512 generation) ---
-        print(f"Attempting to load Stable Diffusion v1.5 base model with dtype={model_dtype}...")
-        base_pipeline = StableDiffusionPipeline.from_pretrained(
-            "runwayml/stable-diffusion-v1-5",
+        # --- Load FLUX Pipeline ---
+        print(f"Attempting to load FLUX model with dtype={model_dtype}...")
+        flux_pipeline = FluxPipeline.from_pretrained(
+            "black-forest-labs/FLUX.1-dev",
             torch_dtype=model_dtype
         )
         if device != "cpu":
-            base_pipeline.to(device)
-        # Enable sequential CPU offload. This is crucial for memory management.
-        base_pipeline.enable_sequential_cpu_offload()
-        print(f"Base model loaded successfully on {device}.")
-
-        # --- Load Upscaling Pipeline ---
-        print(f"Attempting to load Stable Diffusion x4 Upscaler model with 8-bit quantization and CPU offload...")
-        upscale_pipeline = StableDiffusionUpscalePipeline.from_pretrained(
-            "stabilityai/stable-diffusion-x4-upscaler",
-            torch_dtype=model_dtype, # Use consistent dtype
-            load_in_8bit=True # Upscaler is also large, using 8-bit quantization
-        )
-        if device != "cpu":
-            upscale_pipeline.to(device)
-        # Enable sequential CPU offload for the upscaler as well.
-        upscale_pipeline.enable_sequential_cpu_offload()
-        print(f"Upscaling model loaded successfully on {device}.")
+            flux_pipeline.to(device)
+        flux_pipeline.enable_model_cpu_offload()
+        print(f"FLUX model loaded successfully on {device}.")
 
         models_loaded = True
-        print("All models initialized and ready for requests.")
+        print("Model initialized and ready for requests.")
 
     except Exception as e:
         print(f"Error loading models: {e}")
@@ -106,8 +91,7 @@ def load_models():
 @app.route('/generate', methods=['POST'])
 def generate_image():
     """
-    API endpoint to generate a 512x512 image based on a text prompt.
-    Does NOT perform an upscale step.
+    API endpoint to generate an image based on a text prompt using the FLUX model.
     Expects a JSON body with a 'prompt' key.
     Returns a base64 encoded image string.
     """
@@ -122,22 +106,25 @@ def generate_image():
     print(f"Received request for base generation with prompt: '{prompt}'")
 
     try:
-        # Generate the 512x512 image
-        print(f"Generating 512x512 image for prompt: '{prompt}'")
-        image_512 = base_pipeline(
+        # Generate the image
+        print(f"Generating image for prompt: '{prompt}'")
+        generated_image = flux_pipeline(
             prompt=prompt,
+            height=1024,
+            width=1024,
+            guidance_scale=3.5,
             num_inference_steps=50,
-            height=512,
-            width=512,
+            max_sequence_length=512,
+            generator=torch.Generator(device).manual_seed(0)
         ).images[0]
-        print("512x512 image generated.")
+        print("Image generated.")
 
         # Convert PIL Image to Bytes and then to Base64
         buffered = io.BytesIO()
-        image_512.save(buffered, format="PNG")
+        generated_image.save(buffered, format="PNG")
         img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-        return jsonify({"image_base64": img_str, "message": "512x512 image generated successfully!"})
+        return jsonify({"image_base64": img_str, "message": "Image generated successfully!"})
 
     except Exception as e:
         print(f"Error during image generation: {e}")
@@ -146,9 +133,8 @@ def generate_image():
 @app.route('/generate_and_upscale', methods=['POST'])
 def generate_and_upscale_image():
     """
-    API endpoint to generate and upscale an image based on a text prompt.
-    Expects a JSON body with a 'prompt' key.
-    Returns a base64 encoded image string.
+    API endpoint maintained for backward compatibility. Uses the FLUX model to
+    generate a 1024x1024 image. No separate upscaling step is performed.
     """
     if not models_loaded:
         return jsonify({"error": "Models are not yet loaded or failed to load. Please check server logs."}), 503
@@ -158,36 +144,31 @@ def generate_and_upscale_image():
         return jsonify({"error": "Invalid request: 'prompt' field is required in JSON body."}), 400
 
     prompt = data['prompt']
-    print(f"Received request for generation and upscale with prompt: '{prompt}'")
+    print(f"Received request for generation with prompt: '{prompt}'")
 
     try:
-        # Generate the initial 512x512 image
-        print(f"Generating initial 512x512 image for prompt: '{prompt}'")
-        image_512 = base_pipeline(
+        # Generate the image with FLUX
+        print(f"Generating image for prompt: '{prompt}'")
+        upscaled_image = flux_pipeline(
             prompt=prompt,
+            height=1024,
+            width=1024,
+            guidance_scale=3.5,
             num_inference_steps=50,
-            height=512,
-            width=512,
+            max_sequence_length=512,
+            generator=torch.Generator(device).manual_seed(0)
         ).images[0]
-        print("Initial 512x512 image generated.")
-
-        # Upscale the image
-        print(f"Upscaling image for prompt: '{prompt}'")
-        upscaled_image = upscale_pipeline(
-            prompt=prompt, # Keep prompt for upscaler context if it uses it
-            image=image_512, # Pass the generated 512x512 image
-        ).images[0]
-        print("Image upscaled.")
+        print("Image generated.")
 
         # Convert PIL Image to Bytes and then to Base64
         buffered = io.BytesIO()
         upscaled_image.save(buffered, format="PNG")
         img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-        return jsonify({"image_base64": img_str, "message": "Image generated and upscaled successfully!"})
+        return jsonify({"image_base64": img_str, "message": "Image generated successfully!"})
 
     except Exception as e:
-        print(f"Error during image generation or upscaling: {e}")
+        print(f"Error during image generation: {e}")
         return jsonify({"error": f"Internal server error during image processing: {e}"}), 500
 
 @app.route('/')
