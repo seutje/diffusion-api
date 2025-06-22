@@ -10,20 +10,24 @@ from PIL import Image
 # In a production environment, it's highly recommended to install dependencies
 # using pip and requirements.txt BEFORE running the application.
 try:
-    from diffusers import FluxPipeline
+    from diffusers import FluxPipeline, FluxTransformer2DModel
+    from transformers import T5EncoderModel, CLIPTextModel
+    from optimum.quanto import freeze, qfloat8, quantize
     import torch
     import accelerate  # Required for CPU offload
     import bitsandbytes  # Required for 4-bit and 8-bit quantization
     # Flask is explicitly checked here
     import flask
 except ImportError:
-    print("Required libraries not found. Installing 'flask', 'diffusers', 'torch', 'sentencepiece', 'accelerate', and 'bitsandbytes'...")
-    install_command = "pip install Flask diffusers torch sentencepiece accelerate bitsandbytes"
+    print("Required libraries not found. Installing 'flask', 'diffusers', 'torch', 'sentencepiece', 'accelerate', 'bitsandbytes', 'transformers', and 'optimum[quanto]'...")
+    install_command = "pip install Flask diffusers torch sentencepiece accelerate bitsandbytes transformers 'optimum[quanto]'"
     print(f"Executing: {install_command}")
     os.system(install_command)
     try:
         # Re-import after installation attempt
-        from diffusers import FluxPipeline
+        from diffusers import FluxPipeline, FluxTransformer2DModel
+        from transformers import T5EncoderModel, CLIPTextModel
+        from optimum.quanto import freeze, qfloat8, quantize
         import torch
         import accelerate
         import bitsandbytes
@@ -47,11 +51,33 @@ def load_models():
     global flux_pipeline, models_loaded
 
     try:
-        print("Loading FLUX model...")
-        flux_pipeline = FluxPipeline.from_pretrained(
-            "black-forest-labs/FLUX.1-schnell",
-            torch_dtype=torch.bfloat16,
+        print("Loading FLUX model components...")
+
+        bfl_repo = "black-forest-labs/FLUX.1-schnell"
+        dtype = torch.bfloat16
+
+        transformer = FluxTransformer2DModel.from_single_file(
+            "https://huggingface.co/Kijai/flux-fp8/blob/main/flux1-schnell-fp8-e4m3fn.safetensors",
+            torch_dtype=dtype,
         )
+        quantize(transformer, weights=qfloat8)
+        freeze(transformer)
+
+        text_encoder_2 = T5EncoderModel.from_pretrained(
+            bfl_repo, subfolder="text_encoder_2", torch_dtype=dtype
+        )
+        quantize(text_encoder_2, weights=qfloat8)
+        freeze(text_encoder_2)
+
+        flux_pipeline = FluxPipeline.from_pretrained(
+            bfl_repo, transformer=None, text_encoder_2=None, torch_dtype=dtype
+        )
+        flux_pipeline.transformer = transformer
+        flux_pipeline.text_encoder_2 = text_encoder_2
+
+        # Offload the text encoder to the CPU to save GPU memory
+        flux_pipeline.text_encoder_2.to("cpu")
+
         flux_pipeline.enable_model_cpu_offload()
         print("FLUX model loaded successfully.")
 
@@ -93,7 +119,7 @@ def generate_image():
             width=1024,
             guidance_scale=0.0,
             num_inference_steps=4,
-            max_sequence_length=512,
+            max_sequence_length=256,
             generator=torch.Generator("cpu").manual_seed(seed)
         ).images[0]
         print("Image generated.")
@@ -140,7 +166,7 @@ def generate_and_upscale_image():
             width=1024,
             guidance_scale=0.0,
             num_inference_steps=4,
-            max_sequence_length=512,
+            max_sequence_length=256,
             generator=torch.Generator("cpu").manual_seed(seed)
         ).images[0]
         print("Image generated.")
