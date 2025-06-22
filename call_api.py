@@ -1,16 +1,24 @@
+import argparse
 import requests
 import base64
 from PIL import Image
 from io import BytesIO
 
-api_url = "http://localhost:5000/generate_and_upscale"
-prompt = "A vibrant coral reef with colorful fish and sunlight streaming through the water, highly detailed, underwater photography."
+parser = argparse.ArgumentParser(description="Call the diffusion API")
+parser.add_argument("prompt", help="Text prompt for image generation")
+parser.add_argument("--seed", type=int, help="Optional seed for generation")
+parser.add_argument("--url", default="http://localhost:5000/generate_and_upscale", help="API URL")
 
-payload = {"prompt": prompt}
+args = parser.parse_args()
+
+payload = {"prompt": args.prompt}
+if args.seed is not None:
+    payload["seed"] = args.seed
+
 headers = {"Content-Type": "application/json"}
 
-print(f"Sending request for prompt: {prompt}")
-response = requests.post(api_url, json=payload, headers=headers)
+print(f"Sending request for prompt: {args.prompt} with seed: {payload.get('seed', 'random')}")
+response = requests.post(args.url, json=payload, headers=headers)
 
 if response.status_code == 200:
     result = response.json()
