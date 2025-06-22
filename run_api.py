@@ -106,13 +106,21 @@ def generate_image():
         return jsonify({"error": "Invalid request: 'prompt' field is required in JSON body."}), 400
 
     prompt = data['prompt']
-    print(f"Received request for base generation with prompt: '{prompt}'")
+    seed = data.get('seed')
+    if seed is None:
+        seed = random.randint(0, 2**32 - 1)
+        print(f"No seed provided. Using random seed: {seed}")
+    else:
+        try:
+            seed = int(seed)
+        except (ValueError, TypeError):
+            return jsonify({"error": "Seed must be an integer."}), 400
+        print(f"Using provided seed: {seed}")
+    print(f"Received request for base generation with prompt: '{prompt}' and seed: {seed}")
 
     try:
         # Generate the image
-        print(f"Generating image for prompt: '{prompt}'")
-        seed = random.randint(0, 2**32 - 1)
-        print(f"Using random seed: {seed}")
+        print(f"Generating image for prompt: '{prompt}' with seed: {seed}")
         generated_image = flux_pipeline(
             prompt=prompt,
             height=1024,
@@ -153,13 +161,21 @@ def generate_and_upscale_image():
         return jsonify({"error": "Invalid request: 'prompt' field is required in JSON body."}), 400
 
     prompt = data['prompt']
-    print(f"Received request for generation with prompt: '{prompt}'")
+    seed = data.get('seed')
+    if seed is None:
+        seed = random.randint(0, 2**32 - 1)
+        print(f"No seed provided. Using random seed: {seed}")
+    else:
+        try:
+            seed = int(seed)
+        except (ValueError, TypeError):
+            return jsonify({"error": "Seed must be an integer."}), 400
+        print(f"Using provided seed: {seed}")
+    print(f"Received request for generation with prompt: '{prompt}' and seed: {seed}")
 
     try:
         # Generate the image with FLUX
-        print(f"Generating image for prompt: '{prompt}'")
-        seed = random.randint(0, 2**32 - 1)
-        print(f"Using random seed: {seed}")
+        print(f"Generating image for prompt: '{prompt}' with seed: {seed}")
         upscaled_image = flux_pipeline(
             prompt=prompt,
             height=1024,
