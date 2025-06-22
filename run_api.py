@@ -74,6 +74,10 @@ def load_models():
         )
         flux_pipeline.transformer = transformer
         flux_pipeline.text_encoder_2 = text_encoder_2
+
+        # Offload the text encoder to the CPU to save GPU memory
+        flux_pipeline.text_encoder_2.to("cpu")
+
         flux_pipeline.enable_model_cpu_offload()
         print("FLUX model loaded successfully.")
 
