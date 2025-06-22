@@ -2,6 +2,7 @@ import os
 import io
 import base64
 import random
+import hashlib
 from flask import Flask, request, jsonify
 from PIL import Image
 
@@ -45,6 +46,9 @@ app = Flask(__name__)
 # Global pipeline variable
 flux_pipeline = None
 models_loaded = False
+# Directory to store generated images
+IMAGES_DIR = "generated_images"
+os.makedirs(IMAGES_DIR, exist_ok=True)
 
 def load_models():
     """Load the FLUX model once at startup."""
@@ -118,6 +122,20 @@ def generate_image():
         print(f"Using provided seed: {seed}")
     print(f"Received request for base generation with prompt: '{prompt}' and seed: {seed}")
 
+    # Check if an image with the same prompt and seed already exists
+    key = f"{prompt}|{seed}"
+    image_hash = hashlib.sha256(key.encode("utf-8")).hexdigest()
+    image_path = os.path.join(IMAGES_DIR, f"{image_hash}.png")
+    if os.path.exists(image_path):
+        print(f"Returning cached image for prompt '{prompt}' and seed {seed}")
+        with open(image_path, "rb") as f:
+            img_str = base64.b64encode(f.read()).decode("utf-8")
+        return jsonify({
+            "image_base64": img_str,
+            "message": "Image retrieved from cache!",
+            "seed": seed
+        })
+
     try:
         # Generate the image
         print(f"Generating image for prompt: '{prompt}' with seed: {seed}")
@@ -131,6 +149,9 @@ def generate_image():
             generator=torch.Generator("cpu").manual_seed(seed)
         ).images[0]
         print("Image generated.")
+
+        # Save image to disk
+        generated_image.save(image_path)
 
         # Convert PIL Image to Bytes and then to Base64
         buffered = io.BytesIO()
@@ -173,6 +194,20 @@ def generate_and_upscale_image():
         print(f"Using provided seed: {seed}")
     print(f"Received request for generation with prompt: '{prompt}' and seed: {seed}")
 
+    # Check cache before generating
+    key = f"{prompt}|{seed}"
+    image_hash = hashlib.sha256(key.encode("utf-8")).hexdigest()
+    image_path = os.path.join(IMAGES_DIR, f"{image_hash}.png")
+    if os.path.exists(image_path):
+        print(f"Returning cached image for prompt '{prompt}' and seed {seed}")
+        with open(image_path, "rb") as f:
+            img_str = base64.b64encode(f.read()).decode("utf-8")
+        return jsonify({
+            "image_base64": img_str,
+            "message": "Image retrieved from cache!",
+            "seed": seed
+        })
+
     try:
         # Generate the image with FLUX
         print(f"Generating image for prompt: '{prompt}' with seed: {seed}")
@@ -186,6 +221,9 @@ def generate_and_upscale_image():
             generator=torch.Generator("cpu").manual_seed(seed)
         ).images[0]
         print("Image generated.")
+
+        # Save image to disk
+        upscaled_image.save(image_path)
 
         # Convert PIL Image to Bytes and then to Base64
         buffered = io.BytesIO()
