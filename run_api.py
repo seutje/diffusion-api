@@ -114,8 +114,8 @@ def generate_image():
             height=1024,
             width=1024,
             guidance_scale=3.5,
-            num_inference_steps=6,
-            max_sequence_length=512,
+            num_inference_steps=4,
+            max_sequence_length=256,
             generator=torch.Generator("cpu").manual_seed(seed)
         ).images[0]
         print("Image generated.")
@@ -161,8 +161,8 @@ def generate_and_upscale_image():
             height=1024,
             width=1024,
             guidance_scale=3.5,
-            num_inference_steps=6,
-            max_sequence_length=512,
+            num_inference_steps=4,
+            max_sequence_length=256,
             generator=torch.Generator("cpu").manual_seed(seed)
         ).images[0]
         print("Image generated.")
