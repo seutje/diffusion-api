@@ -66,12 +66,18 @@ def load_models():
         )
         quantize(transformer, weights=qfloat8)
         freeze(transformer)
+        # Compile the transformer for faster inference when torch.compile is available
+        if hasattr(torch, "compile"):
+            transformer = torch.compile(transformer)
 
         text_encoder_2 = T5EncoderModel.from_pretrained(
             bfl_repo, subfolder="text_encoder_2", torch_dtype=dtype
         )
         quantize(text_encoder_2, weights=qfloat8)
         freeze(text_encoder_2)
+        # Compile the text encoder as well
+        if hasattr(torch, "compile"):
+            text_encoder_2 = torch.compile(text_encoder_2)
 
         flux_pipeline = FluxPipeline.from_pretrained(
             bfl_repo, transformer=None, text_encoder_2=None, torch_dtype=dtype
