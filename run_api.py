@@ -68,6 +68,7 @@ def load_models():
         freeze(transformer)
         # Compile the transformer for faster inference when torch.compile is available
         if hasattr(torch, "compile"):
+            print("Compiling transformer with torch.compile...")
             transformer = torch.compile(transformer)
 
         text_encoder_2 = T5EncoderModel.from_pretrained(
@@ -77,6 +78,7 @@ def load_models():
         freeze(text_encoder_2)
         # Compile the text encoder as well
         if hasattr(torch, "compile"):
+            print("Compiling text encoder with torch.compile...")
             text_encoder_2 = torch.compile(text_encoder_2)
 
         flux_pipeline = FluxPipeline.from_pretrained(
