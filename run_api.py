@@ -66,10 +66,13 @@ def load_models():
         )
         quantize(transformer, weights=qfloat8)
         freeze(transformer)
-        # Compile the transformer for faster inference when torch.compile is available
+        # Compile the transformer for faster inference if possible
         if hasattr(torch, "compile"):
             print("Compiling transformer with torch.compile...")
-            transformer = torch.compile(transformer)
+            try:
+                transformer = torch.compile(transformer)
+            except Exception as compile_err:
+                print(f"torch.compile failed for transformer: {compile_err}. Skipping compilation.")
 
         text_encoder_2 = T5EncoderModel.from_pretrained(
             bfl_repo, subfolder="text_encoder_2", torch_dtype=dtype
@@ -79,7 +82,10 @@ def load_models():
         # Compile the text encoder as well
         if hasattr(torch, "compile"):
             print("Compiling text encoder with torch.compile...")
-            text_encoder_2 = torch.compile(text_encoder_2)
+            try:
+                text_encoder_2 = torch.compile(text_encoder_2)
+            except Exception as compile_err:
+                print(f"torch.compile failed for text encoder: {compile_err}. Skipping compilation.")
 
         flux_pipeline = FluxPipeline.from_pretrained(
             bfl_repo, transformer=None, text_encoder_2=None, torch_dtype=dtype
