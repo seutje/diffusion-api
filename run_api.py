@@ -50,6 +50,48 @@ models_loaded = False
 IMAGES_DIR = "generated_images"
 os.makedirs(IMAGES_DIR, exist_ok=True)
 
+
+def optimize(pipe, compile: bool = True):
+    """Prepare the pipeline for fast inference with optional torch.compile."""
+    try:
+        pipe.transformer.fuse_qkv_projections()
+    except Exception as fuse_err:
+        print(f"Failed to fuse transformer projections: {fuse_err}")
+
+    if hasattr(pipe, "vae"):
+        try:
+            pipe.vae.fuse_qkv_projections()
+        except Exception as fuse_err:
+            print(f"Failed to fuse VAE projections: {fuse_err}")
+
+    pipe.transformer.to(memory_format=torch.channels_last)
+    if hasattr(pipe, "vae"):
+        pipe.vae.to(memory_format=torch.channels_last)
+
+    if not compile or not hasattr(torch, "compile"):
+        return pipe
+
+    config = torch._inductor.config
+    config.disable_progress = False
+    config.conv_1x1_as_mm = True
+    config.coordinate_descent_tuning = True
+    config.coordinate_descent_check_all_directions = True
+    config.epilogue_fusion = False
+
+    print("Preparing torch.compile modules...")
+    pipe.transformer = torch.compile(
+        pipe.transformer, mode="max-autotune", fullgraph=True
+    )
+    if hasattr(pipe, "vae"):
+        pipe.vae.decode = torch.compile(
+            pipe.vae.decode, mode="max-autotune", fullgraph=True
+        )
+
+    print(
+        "torch.compile will be triggered on the first inference request."
+    )
+    return pipe
+
 def load_models():
     """Load the FLUX model once at startup."""
     global flux_pipeline, models_loaded
@@ -66,32 +108,21 @@ def load_models():
         )
         quantize(transformer, weights=qfloat8)
         freeze(transformer)
-        # Compile the transformer for faster inference if possible
-        if hasattr(torch, "compile"):
-            print("Compiling transformer with torch.compile...")
-            try:
-                transformer = torch.compile(transformer)
-            except Exception as compile_err:
-                print(f"torch.compile failed for transformer: {compile_err}. Skipping compilation.")
 
         text_encoder_2 = T5EncoderModel.from_pretrained(
             bfl_repo, subfolder="text_encoder_2", torch_dtype=dtype
         )
         quantize(text_encoder_2, weights=qfloat8)
         freeze(text_encoder_2)
-        # Compile the text encoder as well
-        if hasattr(torch, "compile"):
-            print("Compiling text encoder with torch.compile...")
-            try:
-                text_encoder_2 = torch.compile(text_encoder_2)
-            except Exception as compile_err:
-                print(f"torch.compile failed for text encoder: {compile_err}. Skipping compilation.")
 
         flux_pipeline = FluxPipeline.from_pretrained(
             bfl_repo, transformer=None, text_encoder_2=None, torch_dtype=dtype
         )
         flux_pipeline.transformer = transformer
         flux_pipeline.text_encoder_2 = text_encoder_2
+
+        # Prepare the pipeline for optimized inference
+        optimize(flux_pipeline)
 
         # Offload the text encoder to the CPU to save GPU memory
         flux_pipeline.text_encoder_2.to("cpu")
