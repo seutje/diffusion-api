@@ -3,6 +3,8 @@ import io
 import base64
 import random
 import hashlib
+import threading
+import time
 from flask import Flask, request, jsonify
 from PIL import Image
 
@@ -46,6 +48,10 @@ app = Flask(__name__)
 # Global pipeline variable
 flux_pipeline = None
 models_loaded = False
+# Track the time of the last API request to allow lazy unloading
+last_request_time = time.time()
+# seconds to wait before unloading the model
+UNLOAD_TIMEOUT = 60
 # Directory to store generated images
 IMAGES_DIR = "generated_images"
 os.makedirs(IMAGES_DIR, exist_ok=True)
@@ -93,6 +99,28 @@ def load_models():
         print("Please check your environment, driver setup, and ensure sufficient memory.")
         models_loaded = False
 
+def unload_models():
+    """Unload the FLUX model to free resources."""
+    global flux_pipeline, models_loaded
+    if flux_pipeline is not None:
+        print("Unloading FLUX model due to inactivity...")
+        try:
+            del flux_pipeline
+            torch.cuda.empty_cache()
+        except Exception:
+            pass
+        flux_pipeline = None
+        models_loaded = False
+        print("Model unloaded.")
+
+def monitor_inactivity(timeout=UNLOAD_TIMEOUT):
+    """Background thread to unload the model after a period of inactivity."""
+    global last_request_time
+    while True:
+        time.sleep(max(5, timeout / 2))
+        if models_loaded and (time.time() - last_request_time) > timeout:
+            unload_models()
+
 # --- API Endpoints ---
 
 @app.route('/generate', methods=['POST'])
@@ -102,8 +130,12 @@ def generate_image():
     Expects a JSON body with a 'prompt' key.
     Returns a base64 encoded image string.
     """
+    global last_request_time
+    last_request_time = time.time()
     if not models_loaded:
-        return jsonify({"error": "Models are not yet loaded or failed to load. Please check server logs."}), 503
+        load_models()
+        if not models_loaded:
+            return jsonify({"error": "Models are not yet loaded or failed to load. Please check server logs."}), 503
 
     data = request.get_json()
     if not data or 'prompt' not in data:
@@ -174,8 +206,12 @@ def generate_and_upscale_image():
     API endpoint maintained for backward compatibility. Uses the FLUX model to
     generate a 1024x1024 image. No separate upscaling step is performed.
     """
+    global last_request_time
+    last_request_time = time.time()
     if not models_loaded:
-        return jsonify({"error": "Models are not yet loaded or failed to load. Please check server logs."}), 503
+        load_models()
+        if not models_loaded:
+            return jsonify({"error": "Models are not yet loaded or failed to load. Please check server logs."}), 503
 
     data = request.get_json()
     if not data or 'prompt' not in data:
@@ -250,6 +286,9 @@ if __name__ == '__main__':
     print("Starting Flask application...")
     print("Loading models in the background. This may take a while depending on your system.")
     load_models() # Load models when the app starts
+
+    # Start background thread to monitor inactivity
+    threading.Thread(target=monitor_inactivity, daemon=True).start()
     
     # Run the Flask app
     # host='0.0.0.0' makes the server accessible from outside the WSL2 container (e.g., from Windows host)
