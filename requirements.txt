@@ -3,7 +3,5 @@ diffusers==0.30.0
 torch==2.7.1
 torchvision==0.22.0
 torchaudio==2.7.1
-accelerate==0.31.0
-bitsandbytes==0.43.1
 sentencepiece==0.2.0
 Pillow==10.3.0
