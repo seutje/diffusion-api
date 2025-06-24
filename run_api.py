@@ -2,6 +2,7 @@ import os
 import io
 import base64
 import random
+import threading
 import hashlib
 from flask import Flask, request, jsonify
 from PIL import Image
@@ -46,6 +47,7 @@ app = Flask(__name__)
 # Global pipeline variable
 flux_pipeline = None
 models_loaded = False
+unload_timer = None  # Timer for delaying GPU offload
 # Directory to store generated images
 IMAGES_DIR = "generated_images"
 os.makedirs(IMAGES_DIR, exist_ok=True)
@@ -96,6 +98,33 @@ def load_models():
         print("Please check your environment, driver setup, and ensure sufficient memory.")
         models_loaded = False
 
+
+def move_pipeline_to_cuda():
+    """Move the pipeline to CUDA if it isn't already there."""
+    if torch.cuda.is_available() and flux_pipeline.device != torch.device("cuda"):
+        flux_pipeline.to("cuda")
+        torch.cuda.empty_cache()
+
+
+def unload_pipeline():
+    """Offload the pipeline back to CPU and clear VRAM."""
+    global unload_timer
+    flux_pipeline.to("cpu")
+    torch.cuda.empty_cache()
+    unload_timer = None
+
+
+def schedule_unload(delay: int = 60):
+    """Schedule unloading the pipeline after a delay."""
+    global unload_timer
+    if not torch.cuda.is_available():
+        return
+    if unload_timer is not None:
+        unload_timer.cancel()
+    unload_timer = threading.Timer(delay, unload_pipeline)
+    unload_timer.daemon = True
+    unload_timer.start()
+
 # --- API Endpoints ---
 
 @app.route('/generate', methods=['POST'])
@@ -140,11 +169,10 @@ def generate_image():
         })
 
     try:
-        # Move pipeline to GPU only for the duration of generation
-        use_cuda = torch.cuda.is_available()
-        if use_cuda:
-            flux_pipeline.to("cuda")
-            torch.cuda.empty_cache()
+        # Move pipeline to GPU and reset unload timer
+        if torch.cuda.is_available():
+            move_pipeline_to_cuda()
+            schedule_unload()
 
         # Generate the image
         print(f"Generating image for prompt: '{prompt}' with seed: {seed}")
@@ -159,10 +187,6 @@ def generate_image():
         ).images[0]
         print("Image generated.")
 
-        if use_cuda:
-            # Move back to CPU and release VRAM
-            flux_pipeline.to("cpu")
-            torch.cuda.empty_cache()
 
         # Save image to disk
         generated_image.save(image_path)
@@ -223,11 +247,10 @@ def generate_and_upscale_image():
         })
 
     try:
-        # Move pipeline to GPU only for the duration of generation
-        use_cuda = torch.cuda.is_available()
-        if use_cuda:
-            flux_pipeline.to("cuda")
-            torch.cuda.empty_cache()
+        # Move pipeline to GPU and reset unload timer
+        if torch.cuda.is_available():
+            move_pipeline_to_cuda()
+            schedule_unload()
 
         # Generate the image with FLUX
         print(f"Generating image for prompt: '{prompt}' with seed: {seed}")
@@ -242,10 +265,6 @@ def generate_and_upscale_image():
         ).images[0]
         print("Image generated.")
 
-        if use_cuda:
-            # Move back to CPU and release VRAM
-            flux_pipeline.to("cpu")
-            torch.cuda.empty_cache()
 
         # Save image to disk
         upscaled_image.save(image_path)
