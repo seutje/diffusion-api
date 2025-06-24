@@ -2,6 +2,7 @@ import os
 import io
 import base64
 import random
+import threading
 import hashlib
 from flask import Flask, request, jsonify
 from PIL import Image
@@ -13,31 +14,24 @@ from PIL import Image
 try:
     from diffusers import FluxPipeline, FluxTransformer2DModel
     from transformers import T5EncoderModel, CLIPTextModel
-    from optimum.quanto import freeze, qfloat8, quantize
     import torch
-    import accelerate  # Required for CPU offload
-    import bitsandbytes  # Required for 4-bit and 8-bit quantization
     # Flask is explicitly checked here
     import flask
 except ImportError:
-    print("Required libraries not found. Installing 'flask', 'diffusers', 'torch', 'sentencepiece', 'accelerate', 'bitsandbytes', 'transformers', and 'optimum[quanto]'...")
-    install_command = "pip install Flask diffusers torch sentencepiece accelerate bitsandbytes transformers 'optimum[quanto]'"
+    print("Required libraries not found. Installing 'flask', 'diffusers', 'torch', 'sentencepiece', and 'transformers'...")
+    install_command = "pip install Flask diffusers torch sentencepiece transformers"
     print(f"Executing: {install_command}")
     os.system(install_command)
     try:
         # Re-import after installation attempt
         from diffusers import FluxPipeline, FluxTransformer2DModel
         from transformers import T5EncoderModel, CLIPTextModel
-        from optimum.quanto import freeze, qfloat8, quantize
         import torch
-        import accelerate
-        import bitsandbytes
         import flask
         print("Libraries installed and imported successfully.")
     except ImportError as e:
         print(f"\nFailed to import all necessary libraries even after attempting installation: {e}")
         print("Please ensure your Python environment is compatible with required packages and check installation guides.")
-        print("For bitsandbytes on Windows/WSL, you might need specific versions or pre-compiled wheels.")
         exit(1)
 # --- End library check ---
 
@@ -46,6 +40,7 @@ app = Flask(__name__)
 # Global pipeline variable
 flux_pipeline = None
 models_loaded = False
+unload_timer = None  # Timer for delaying GPU offload
 # Directory to store generated images
 IMAGES_DIR = "generated_images"
 os.makedirs(IMAGES_DIR, exist_ok=True)
@@ -58,20 +53,17 @@ def load_models():
         print("Loading FLUX model components...")
 
         bfl_repo = "black-forest-labs/FLUX.1-schnell"
-        dtype = torch.bfloat16
+        # Use float16 for faster GPU execution
+        dtype = torch.float16
 
         transformer = FluxTransformer2DModel.from_single_file(
             "https://huggingface.co/Kijai/flux-fp8/blob/main/flux1-schnell-fp8-e4m3fn.safetensors",
             torch_dtype=dtype,
         )
-        quantize(transformer, weights=qfloat8)
-        freeze(transformer)
 
         text_encoder_2 = T5EncoderModel.from_pretrained(
             bfl_repo, subfolder="text_encoder_2", torch_dtype=dtype
         )
-        quantize(text_encoder_2, weights=qfloat8)
-        freeze(text_encoder_2)
 
         flux_pipeline = FluxPipeline.from_pretrained(
             bfl_repo, transformer=None, text_encoder_2=None, torch_dtype=dtype
@@ -79,10 +71,12 @@ def load_models():
         flux_pipeline.transformer = transformer
         flux_pipeline.text_encoder_2 = text_encoder_2
 
-        # Offload the text encoder to the CPU to save GPU memory
-        flux_pipeline.text_encoder_2.to("cpu")
-
-        flux_pipeline.enable_model_cpu_offload()
+        # Keep the pipeline on the CPU by default. It will be moved to the GPU
+        # only when a generation request is made to conserve VRAM.
+        if torch.cuda.is_available():
+            torch.backends.cuda.matmul.allow_tf32 = True
+        else:
+            print("CUDA not available, running on CPU which will be slower")
         print("FLUX model loaded successfully.")
 
         models_loaded = True
@@ -92,6 +86,39 @@ def load_models():
         print(f"Error loading models: {e}")
         print("Please check your environment, driver setup, and ensure sufficient memory.")
         models_loaded = False
+
+
+def move_pipeline_to_cuda():
+    """Ensure the entire pipeline is on the GPU."""
+    if not torch.cuda.is_available():
+        return
+    flux_pipeline.to("cuda")
+    flux_pipeline.transformer.to("cuda")
+    flux_pipeline.text_encoder_2.to("cuda")
+    torch.cuda.empty_cache()
+
+
+def unload_pipeline():
+    """Offload the pipeline back to CPU and clear VRAM."""
+    global unload_timer
+    if torch.cuda.is_available():
+        flux_pipeline.to("cpu")
+        flux_pipeline.transformer.to("cpu")
+        flux_pipeline.text_encoder_2.to("cpu")
+        torch.cuda.empty_cache()
+    unload_timer = None
+
+
+def schedule_unload(delay: int = 60):
+    """Schedule unloading the pipeline after a delay."""
+    global unload_timer
+    if not torch.cuda.is_available():
+        return
+    if unload_timer is not None:
+        unload_timer.cancel()
+    unload_timer = threading.Timer(delay, unload_pipeline)
+    unload_timer.daemon = True
+    unload_timer.start()
 
 # --- API Endpoints ---
 
@@ -137,6 +164,11 @@ def generate_image():
         })
 
     try:
+        # Move pipeline to GPU and reset unload timer
+        if torch.cuda.is_available():
+            move_pipeline_to_cuda()
+            schedule_unload()
+
         # Generate the image
         print(f"Generating image for prompt: '{prompt}' with seed: {seed}")
         generated_image = flux_pipeline(
@@ -146,9 +178,10 @@ def generate_image():
             guidance_scale=0.0,
             num_inference_steps=4,
             max_sequence_length=256,
-            generator=torch.Generator("cpu").manual_seed(seed)
+            generator=torch.Generator("cuda" if torch.cuda.is_available() else "cpu").manual_seed(seed)
         ).images[0]
         print("Image generated.")
+
 
         # Save image to disk
         generated_image.save(image_path)
@@ -209,6 +242,11 @@ def generate_and_upscale_image():
         })
 
     try:
+        # Move pipeline to GPU and reset unload timer
+        if torch.cuda.is_available():
+            move_pipeline_to_cuda()
+            schedule_unload()
+
         # Generate the image with FLUX
         print(f"Generating image for prompt: '{prompt}' with seed: {seed}")
         upscaled_image = flux_pipeline(
@@ -218,9 +256,10 @@ def generate_and_upscale_image():
             guidance_scale=0.0,
             num_inference_steps=4,
             max_sequence_length=256,
-            generator=torch.Generator("cpu").manual_seed(seed)
+            generator=torch.Generator("cuda" if torch.cuda.is_available() else "cpu").manual_seed(seed)
         ).images[0]
         print("Image generated.")
+
 
         # Save image to disk
         upscaled_image.save(image_path)
