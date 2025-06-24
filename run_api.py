@@ -58,7 +58,8 @@ def load_models():
         print("Loading FLUX model components...")
 
         bfl_repo = "black-forest-labs/FLUX.1-schnell"
-        dtype = torch.bfloat16
+        # Use float16 for faster GPU execution
+        dtype = torch.float16
 
         transformer = FluxTransformer2DModel.from_single_file(
             "https://huggingface.co/Kijai/flux-fp8/blob/main/flux1-schnell-fp8-e4m3fn.safetensors",
@@ -79,10 +80,12 @@ def load_models():
         flux_pipeline.transformer = transformer
         flux_pipeline.text_encoder_2 = text_encoder_2
 
-        # Offload the text encoder to the CPU to save GPU memory
-        flux_pipeline.text_encoder_2.to("cpu")
-
-        flux_pipeline.enable_model_cpu_offload()
+        # Move the entire pipeline to the GPU for maximum performance
+        if torch.cuda.is_available():
+            torch.backends.cuda.matmul.allow_tf32 = True
+            flux_pipeline.to("cuda")
+        else:
+            print("CUDA not available, running on CPU which will be slower")
         print("FLUX model loaded successfully.")
 
         models_loaded = True
@@ -146,7 +149,7 @@ def generate_image():
             guidance_scale=0.0,
             num_inference_steps=4,
             max_sequence_length=256,
-            generator=torch.Generator("cpu").manual_seed(seed)
+            generator=torch.Generator("cuda" if torch.cuda.is_available() else "cpu").manual_seed(seed)
         ).images[0]
         print("Image generated.")
 
@@ -218,7 +221,7 @@ def generate_and_upscale_image():
             guidance_scale=0.0,
             num_inference_steps=4,
             max_sequence_length=256,
-            generator=torch.Generator("cpu").manual_seed(seed)
+            generator=torch.Generator("cuda" if torch.cuda.is_available() else "cpu").manual_seed(seed)
         ).images[0]
         print("Image generated.")
 

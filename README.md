@@ -4,6 +4,10 @@ This repository provides a simple Flask API for generating images using the FLUX
 
 Generated images are cached on disk under `generated_images/`. When a request is made with the same prompt and seed combination, the API returns the cached image instead of re-running the model.
 
+The pipeline now automatically uses CUDA if a GPU is available. A modern GPU
+like an RTX 4070 with at least 12GB of VRAM is recommended for best
+performance.
+
 Run the API with:
 
 ```bash
