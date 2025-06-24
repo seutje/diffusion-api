@@ -4,6 +4,10 @@ This repository provides a simple Flask API for generating images using the FLUX
 
 Generated images are cached on disk under `generated_images/`. When a request is made with the same prompt and seed combination, the API returns the cached image instead of re-running the model.
 
+The loading routine prepares the model for compilation with `torch.compile` and uses an optimization pass inspired by [PyTorch's example](https://pytorch.org). Actual compilation happens the first time an inference request is processed, avoiding extra work during startup. If compilation fails (for example when using quantized weights), the models fall back to standard execution.
+
+The pipeline is downloaded directly from `black-forest-labs/FLUX.1-schnell` in bfloat16 precision and moved to the GPU before being optimized.
+
 Run the API with:
 
 ```bash
