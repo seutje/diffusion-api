@@ -3,6 +3,7 @@ import io
 import base64
 import random
 import hashlib
+import gc
 from flask import Flask, request, jsonify
 from PIL import Image
 
@@ -139,15 +140,19 @@ def generate_image():
     try:
         # Generate the image
         print(f"Generating image for prompt: '{prompt}' with seed: {seed}")
-        generated_image = flux_pipeline(
-            prompt=prompt,
-            height=1024,
-            width=1024,
-            guidance_scale=0.0,
-            num_inference_steps=4,
-            max_sequence_length=256,
-            generator=torch.Generator("cpu").manual_seed(seed)
-        ).images[0]
+        with torch.inference_mode():
+            generated_image = flux_pipeline(
+                prompt=prompt,
+                height=1024,
+                width=1024,
+                guidance_scale=0.0,
+                num_inference_steps=4,
+                max_sequence_length=256,
+                generator=torch.Generator("cpu").manual_seed(seed)
+            ).images[0]
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        gc.collect()
         print("Image generated.")
 
         # Save image to disk
@@ -211,15 +216,19 @@ def generate_and_upscale_image():
     try:
         # Generate the image with FLUX
         print(f"Generating image for prompt: '{prompt}' with seed: {seed}")
-        upscaled_image = flux_pipeline(
-            prompt=prompt,
-            height=1024,
-            width=1024,
-            guidance_scale=0.0,
-            num_inference_steps=4,
-            max_sequence_length=256,
-            generator=torch.Generator("cpu").manual_seed(seed)
-        ).images[0]
+        with torch.inference_mode():
+            upscaled_image = flux_pipeline(
+                prompt=prompt,
+                height=1024,
+                width=1024,
+                guidance_scale=0.0,
+                num_inference_steps=4,
+                max_sequence_length=256,
+                generator=torch.Generator("cpu").manual_seed(seed)
+            ).images[0]
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        gc.collect()
         print("Image generated.")
 
         # Save image to disk
