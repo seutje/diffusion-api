@@ -80,10 +80,10 @@ def load_models():
         flux_pipeline.transformer = transformer
         flux_pipeline.text_encoder_2 = text_encoder_2
 
-        # Move the entire pipeline to the GPU for maximum performance
+        # Keep the pipeline on the CPU by default. It will be moved to the GPU
+        # only when a generation request is made to conserve VRAM.
         if torch.cuda.is_available():
             torch.backends.cuda.matmul.allow_tf32 = True
-            flux_pipeline.to("cuda")
         else:
             print("CUDA not available, running on CPU which will be slower")
         print("FLUX model loaded successfully.")
@@ -140,6 +140,12 @@ def generate_image():
         })
 
     try:
+        # Move pipeline to GPU only for the duration of generation
+        use_cuda = torch.cuda.is_available()
+        if use_cuda:
+            flux_pipeline.to("cuda")
+            torch.cuda.empty_cache()
+
         # Generate the image
         print(f"Generating image for prompt: '{prompt}' with seed: {seed}")
         generated_image = flux_pipeline(
@@ -152,6 +158,11 @@ def generate_image():
             generator=torch.Generator("cuda" if torch.cuda.is_available() else "cpu").manual_seed(seed)
         ).images[0]
         print("Image generated.")
+
+        if use_cuda:
+            # Move back to CPU and release VRAM
+            flux_pipeline.to("cpu")
+            torch.cuda.empty_cache()
 
         # Save image to disk
         generated_image.save(image_path)
@@ -212,6 +223,12 @@ def generate_and_upscale_image():
         })
 
     try:
+        # Move pipeline to GPU only for the duration of generation
+        use_cuda = torch.cuda.is_available()
+        if use_cuda:
+            flux_pipeline.to("cuda")
+            torch.cuda.empty_cache()
+
         # Generate the image with FLUX
         print(f"Generating image for prompt: '{prompt}' with seed: {seed}")
         upscaled_image = flux_pipeline(
@@ -224,6 +241,11 @@ def generate_and_upscale_image():
             generator=torch.Generator("cuda" if torch.cuda.is_available() else "cpu").manual_seed(seed)
         ).images[0]
         print("Image generated.")
+
+        if use_cuda:
+            # Move back to CPU and release VRAM
+            flux_pipeline.to("cpu")
+            torch.cuda.empty_cache()
 
         # Save image to disk
         upscaled_image.save(image_path)
