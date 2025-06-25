@@ -11,7 +11,7 @@ from PIL import Image
 # In a production environment, it's highly recommended to install dependencies
 # using pip and requirements.txt BEFORE running the application.
 try:
-    from diffusers import FluxPipeline, FluxTransformer2DModel
+    from diffusers import FluxPipeline, FluxTransformer2DModel, StableDiffusionUpscalePipeline
     from transformers import T5EncoderModel, CLIPTextModel
     from optimum.quanto import freeze, qfloat8, quantize
     import torch
@@ -26,7 +26,7 @@ except ImportError:
     os.system(install_command)
     try:
         # Re-import after installation attempt
-        from diffusers import FluxPipeline, FluxTransformer2DModel
+        from diffusers import FluxPipeline, FluxTransformer2DModel, StableDiffusionUpscalePipeline
         from transformers import T5EncoderModel, CLIPTextModel
         from optimum.quanto import freeze, qfloat8, quantize
         import torch
@@ -43,16 +43,17 @@ except ImportError:
 
 app = Flask(__name__)
 
-# Global pipeline variable
+# Global pipeline variables
 flux_pipeline = None
+upscale_pipeline = None
 models_loaded = False
 # Directory to store generated images
 IMAGES_DIR = "generated_images"
 os.makedirs(IMAGES_DIR, exist_ok=True)
 
 def load_models():
-    """Load the FLUX model once at startup."""
-    global flux_pipeline, models_loaded
+    """Load the FLUX and upscaler models once at startup."""
+    global flux_pipeline, upscale_pipeline, models_loaded
 
     try:
         print("Loading FLUX model components...")
@@ -84,6 +85,14 @@ def load_models():
 
         flux_pipeline.enable_model_cpu_offload()
         print("FLUX model loaded successfully.")
+
+        print("Loading Stable Diffusion upscaler...")
+        upscale_pipeline = StableDiffusionUpscalePipeline.from_pretrained(
+            "stabilityai/stable-diffusion-x4-upscaler",
+            torch_dtype=torch.float16,
+        )
+        upscale_pipeline.enable_model_cpu_offload()
+        print("Upscale model loaded successfully.")
 
         models_loaded = True
         print("Model initialized and ready for requests.")
@@ -171,7 +180,7 @@ def generate_image():
 
 @app.route('/upscale', methods=['POST'])
 def upscale_image():
-    """Upscale a provided base64 image using a simple 2x resize."""
+    """Upscale a provided base64 image using Stable Diffusion."""
     data = request.get_json()
     if not data or 'image_base64' not in data:
         return jsonify({"error": "Invalid request: 'image_base64' field is required in JSON body."}), 400
@@ -184,7 +193,7 @@ def upscale_image():
         return jsonify({"error": "Failed to decode image. Ensure it is valid base64."}), 400
 
     try:
-        upscaled_image = image.resize((image.width * 2, image.height * 2), Image.LANCZOS)
+        upscaled_image = upscale_pipeline(prompt="", image=image).images[0]
 
         buffered = io.BytesIO()
         upscaled_image.save(buffered, format="PNG")
