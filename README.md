@@ -1,8 +1,10 @@
 # Diffusion API
 
-This repository provides a simple Flask API for generating images using the FLUX diffusion model. The `/generate` and `/generate_and_upscale` endpoints accept a JSON body containing a `prompt` and an optional `seed`.
+This repository provides a simple Flask API for generating images using the **OmniGen2** diffusion model. The `/generate` and `/generate_and_upscale` endpoints accept a JSON body containing a `prompt` and an optional `seed`.
 
 Generated images are cached on disk under `generated_images/`. When a request is made with the same prompt and seed combination, the API returns the cached image instead of re-running the model.
+
+The API loads the model weights from the Hugging Face repository `OmniGen2/OmniGen2` on startup.
 
 Run the API with:
 
