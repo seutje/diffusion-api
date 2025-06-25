@@ -58,7 +58,6 @@ def load_models():
         hidream_pipeline = DiffusionPipeline.from_pretrained(
             hidream_repo,
             torch_dtype=dtype,
-            variant="fp16",
             use_safetensors=True,
         )
 
