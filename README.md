@@ -15,3 +15,10 @@ Use the helper script to call the API:
 ```bash
 python call_api.py "an astronaut riding a horse" --seed 42
 ```
+
+If the optional `xformers` package is installed, the API will automatically
+enable memory efficient attention for reduced GPU memory usage. Install it with:
+
+```bash
+pip install xformers
+```

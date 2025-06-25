@@ -83,6 +83,17 @@ def load_models():
         flux_pipeline.text_encoder_2.to("cpu")
 
         flux_pipeline.enable_model_cpu_offload()
+
+        # Enable memory efficient attention if xformers is installed
+        try:
+            import xformers  # noqa: F401
+            flux_pipeline.enable_xformers_memory_efficient_attention()
+            print("Enabled xformers memory efficient attention.")
+        except ImportError:
+            print("xformers not installed; skipping memory efficient attention.")
+        except Exception as xf_err:
+            print(f"Unable to enable xformers memory efficient attention: {xf_err}")
+
         print("FLUX model loaded successfully.")
 
         models_loaded = True
