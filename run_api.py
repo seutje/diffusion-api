@@ -79,6 +79,17 @@ def load_models():
         flux_pipeline.transformer = transformer
         flux_pipeline.text_encoder_2 = text_encoder_2
 
+        # Enable PyTorch 2.x flash-attn if available
+        try:
+            from diffusers.models.attention_processor import AttnProcessor2_0
+            import torch.nn.functional as F
+
+            if hasattr(F, "scaled_dot_product_attention"):
+                flux_pipeline.unet.set_attn_processor(AttnProcessor2_0())
+                print("Flash attention enabled for UNet")
+        except Exception as e:
+            print(f"Flash attention not enabled: {e}")
+
         # Offload the text encoder to the CPU to save GPU memory
         flux_pipeline.text_encoder_2.to("cpu")
 
