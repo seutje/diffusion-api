@@ -168,77 +168,35 @@ def generate_image():
         print(f"Error during image generation: {e}")
         return jsonify({"error": f"Internal server error during image generation: {e}"}), 500
 
-@app.route('/generate_and_upscale', methods=['POST'])
-def generate_and_upscale_image():
-    """
-    API endpoint maintained for backward compatibility. Uses the FLUX model to
-    generate a 1024x1024 image. No separate upscaling step is performed.
-    """
-    if not models_loaded:
-        return jsonify({"error": "Models are not yet loaded or failed to load. Please check server logs."}), 503
 
+@app.route('/upscale', methods=['POST'])
+def upscale_image():
+    """Upscale a provided base64 image using a simple 2x resize."""
     data = request.get_json()
-    if not data or 'prompt' not in data:
-        return jsonify({"error": "Invalid request: 'prompt' field is required in JSON body."}), 400
-
-    prompt = data['prompt']
-    seed = data.get('seed')
-    if seed is None:
-        seed = random.randint(0, 2**32 - 1)
-        print(f"No seed provided. Using random seed: {seed}")
-    else:
-        try:
-            seed = int(seed)
-        except (ValueError, TypeError):
-            return jsonify({"error": "Seed must be an integer."}), 400
-        print(f"Using provided seed: {seed}")
-    print(f"Received request for generation with prompt: '{prompt}' and seed: {seed}")
-
-    # Check cache before generating
-    key = f"{prompt}|{seed}"
-    image_hash = hashlib.sha256(key.encode("utf-8")).hexdigest()
-    image_path = os.path.join(IMAGES_DIR, f"{image_hash}.png")
-    if os.path.exists(image_path):
-        print(f"Returning cached image for prompt '{prompt}' and seed {seed}")
-        with open(image_path, "rb") as f:
-            img_str = base64.b64encode(f.read()).decode("utf-8")
-        return jsonify({
-            "image_base64": img_str,
-            "message": "Image retrieved from cache!",
-            "seed": seed
-        })
+    if not data or 'image_base64' not in data:
+        return jsonify({"error": "Invalid request: 'image_base64' field is required in JSON body."}), 400
 
     try:
-        # Generate the image with FLUX
-        print(f"Generating image for prompt: '{prompt}' with seed: {seed}")
-        upscaled_image = flux_pipeline(
-            prompt=prompt,
-            height=1024,
-            width=1024,
-            guidance_scale=0.0,
-            num_inference_steps=4,
-            max_sequence_length=256,
-            generator=torch.Generator("cpu").manual_seed(seed)
-        ).images[0]
-        print("Image generated.")
+        img_data = base64.b64decode(data['image_base64'])
+        image = Image.open(io.BytesIO(img_data))
+    except Exception as e:
+        print(f"Error decoding image: {e}")
+        return jsonify({"error": "Failed to decode image. Ensure it is valid base64."}), 400
 
-        # Save image to disk
-        upscaled_image.save(image_path)
+    try:
+        upscaled_image = image.resize((image.width * 2, image.height * 2), Image.LANCZOS)
 
-        # Convert PIL Image to Bytes and then to Base64
         buffered = io.BytesIO()
         upscaled_image.save(buffered, format="PNG")
         img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
         return jsonify({
             "image_base64": img_str,
-            "message": "Image generated successfully!",
-            "seed": seed
+            "message": "Image upscaled successfully!"
         })
-
     except Exception as e:
-        print(f"Error during image generation: {e}")
-        return jsonify({"error": f"Internal server error during image processing: {e}"}), 500
+        print(f"Error during upscaling: {e}")
+        return jsonify({"error": f"Internal server error during image upscaling: {e}"}), 500
 
 @app.route('/')
 def health_check():

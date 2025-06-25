@@ -7,7 +7,7 @@ from io import BytesIO
 parser = argparse.ArgumentParser(description="Call the diffusion API")
 parser.add_argument("prompt", help="Text prompt for image generation")
 parser.add_argument("--seed", type=int, help="Optional seed for generation")
-parser.add_argument("--url", default="http://localhost:5000/generate_and_upscale", help="API URL")
+parser.add_argument("--url", default="http://localhost:5000/generate", help="API URL")
 
 args = parser.parse_args()
 
@@ -25,7 +25,7 @@ if response.status_code == 200:
     if "image_base64" in result:
         img_data = base64.b64decode(result["image_base64"])
         image = Image.open(BytesIO(img_data))
-        output_path = "generated_upscaled_api_image.png"
+        output_path = "generated_api_image.png"
         image.save(output_path)
         print(f"Image successfully generated and saved to {output_path}")
         if "seed" in result:
