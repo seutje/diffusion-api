@@ -11,24 +11,19 @@ from PIL import Image
 # In a production environment, it's highly recommended to install dependencies
 # using pip and requirements.txt BEFORE running the application.
 try:
-    from diffusers import FluxPipeline, FluxTransformer2DModel
-    from transformers import T5EncoderModel, CLIPTextModel
-    from optimum.quanto import freeze, qfloat8, quantize
+    from diffusers import DiffusionPipeline
     import torch
     import accelerate  # Required for CPU offload
-    import bitsandbytes  # Required for 4-bit and 8-bit quantization
-    # Flask is explicitly checked here
-    import flask
+    import bitsandbytes  # Optional, used by some pipelines
+    import flask  # Explicitly checked
 except ImportError:
-    print("Required libraries not found. Installing 'flask', 'diffusers', 'torch', 'sentencepiece', 'accelerate', 'bitsandbytes', 'transformers', and 'optimum[quanto]'...")
-    install_command = "pip install Flask diffusers torch sentencepiece accelerate bitsandbytes transformers 'optimum[quanto]'"
+    print("Required libraries not found. Installing 'flask', 'diffusers', 'torch', 'sentencepiece', 'accelerate' and 'bitsandbytes'...")
+    install_command = "pip install Flask diffusers torch sentencepiece accelerate bitsandbytes"
     print(f"Executing: {install_command}")
     os.system(install_command)
     try:
         # Re-import after installation attempt
-        from diffusers import FluxPipeline, FluxTransformer2DModel
-        from transformers import T5EncoderModel, CLIPTextModel
-        from optimum.quanto import freeze, qfloat8, quantize
+        from diffusers import DiffusionPipeline
         import torch
         import accelerate
         import bitsandbytes
@@ -44,46 +39,29 @@ except ImportError:
 app = Flask(__name__)
 
 # Global pipeline variable
-flux_pipeline = None
+hidream_pipeline = None
 models_loaded = False
 # Directory to store generated images
 IMAGES_DIR = "generated_images"
 os.makedirs(IMAGES_DIR, exist_ok=True)
 
 def load_models():
-    """Load the FLUX model once at startup."""
-    global flux_pipeline, models_loaded
+    """Load the HiDream model once at startup."""
+    global hidream_pipeline, models_loaded
 
     try:
-        print("Loading FLUX model components...")
+        print("Loading HiDream-I1-Fast model components...")
 
-        bfl_repo = "black-forest-labs/FLUX.1-schnell"
-        dtype = torch.bfloat16
+        hidream_repo = "HiDream-ai/HiDream-I1-Fast"
+        dtype = torch.float16
 
-        transformer = FluxTransformer2DModel.from_single_file(
-            "https://huggingface.co/Kijai/flux-fp8/blob/main/flux1-schnell-fp8-e4m3fn.safetensors",
-            torch_dtype=dtype,
+        hidream_pipeline = DiffusionPipeline.from_pretrained(
+            hidream_repo, torch_dtype=dtype
         )
-        quantize(transformer, weights=qfloat8)
-        freeze(transformer)
 
-        text_encoder_2 = T5EncoderModel.from_pretrained(
-            bfl_repo, subfolder="text_encoder_2", torch_dtype=dtype
-        )
-        quantize(text_encoder_2, weights=qfloat8)
-        freeze(text_encoder_2)
-
-        flux_pipeline = FluxPipeline.from_pretrained(
-            bfl_repo, transformer=None, text_encoder_2=None, torch_dtype=dtype
-        )
-        flux_pipeline.transformer = transformer
-        flux_pipeline.text_encoder_2 = text_encoder_2
-
-        # Offload the text encoder to the CPU to save GPU memory
-        flux_pipeline.text_encoder_2.to("cpu")
-
-        flux_pipeline.enable_model_cpu_offload()
-        print("FLUX model loaded successfully.")
+        # Enable CPU offload if available (works with accelerate)
+        hidream_pipeline.enable_model_cpu_offload()
+        print("HiDream model loaded successfully.")
 
         models_loaded = True
         print("Model initialized and ready for requests.")
@@ -98,9 +76,9 @@ def load_models():
 @app.route('/generate', methods=['POST'])
 def generate_image():
     """
-    API endpoint to generate an image based on a text prompt using the FLUX model.
-    Expects a JSON body with a 'prompt' key.
-    Returns a base64 encoded image string.
+    API endpoint to generate an image based on a text prompt using the
+    HiDream-I1-Fast model. Expects a JSON body with a 'prompt' key and
+    returns a base64 encoded image string.
     """
     if not models_loaded:
         return jsonify({"error": "Models are not yet loaded or failed to load. Please check server logs."}), 503
@@ -139,13 +117,12 @@ def generate_image():
     try:
         # Generate the image
         print(f"Generating image for prompt: '{prompt}' with seed: {seed}")
-        generated_image = flux_pipeline(
+        generated_image = hidream_pipeline(
             prompt=prompt,
             height=1024,
             width=1024,
             guidance_scale=0.0,
             num_inference_steps=4,
-            max_sequence_length=256,
             generator=torch.Generator("cpu").manual_seed(seed)
         ).images[0]
         print("Image generated.")
@@ -171,8 +148,9 @@ def generate_image():
 @app.route('/generate_and_upscale', methods=['POST'])
 def generate_and_upscale_image():
     """
-    API endpoint maintained for backward compatibility. Uses the FLUX model to
-    generate a 1024x1024 image. No separate upscaling step is performed.
+    API endpoint maintained for backward compatibility. It uses the
+    HiDream-I1-Fast model to generate a 1024x1024 image. No separate
+    upscaling step is performed.
     """
     if not models_loaded:
         return jsonify({"error": "Models are not yet loaded or failed to load. Please check server logs."}), 503
@@ -209,15 +187,14 @@ def generate_and_upscale_image():
         })
 
     try:
-        # Generate the image with FLUX
+        # Generate the image with HiDream
         print(f"Generating image for prompt: '{prompt}' with seed: {seed}")
-        upscaled_image = flux_pipeline(
+        upscaled_image = hidream_pipeline(
             prompt=prompt,
             height=1024,
             width=1024,
             guidance_scale=0.0,
             num_inference_steps=4,
-            max_sequence_length=256,
             generator=torch.Generator("cpu").manual_seed(seed)
         ).images[0]
         print("Image generated.")
