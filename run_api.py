@@ -62,6 +62,14 @@ def load_models():
             use_safetensors=True,
         )
 
+        # Compile the UNet with torch.compile for speed if available
+        if hasattr(torch, "compile"):
+            try:
+                hidream_pipeline.unet = torch.compile(hidream_pipeline.unet)
+                print("UNet compiled with torch.compile.")
+            except Exception as ce:
+                print(f"torch.compile failed: {ce}. Proceeding without compilation.")
+
         # Enable CPU offload if available (works with accelerate)
         hidream_pipeline.enable_model_cpu_offload()
         print("HiDream model loaded successfully.")
