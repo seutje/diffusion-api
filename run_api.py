@@ -11,79 +11,67 @@ from PIL import Image
 # In a production environment, it's highly recommended to install dependencies
 # using pip and requirements.txt BEFORE running the application.
 try:
-    from diffusers import FluxPipeline, FluxTransformer2DModel
-    from transformers import T5EncoderModel, CLIPTextModel
-    from optimum.quanto import freeze, qfloat8, quantize
+    from diffusers import DiffusionPipeline
+    from omnigen2.pipelines.omnigen2.pipeline_omnigen2 import OmniGen2Pipeline
+    from omnigen2.models.transformers.transformer_omnigen2 import OmniGen2Transformer2DModel
     import torch
     import accelerate  # Required for CPU offload
-    import bitsandbytes  # Required for 4-bit and 8-bit quantization
     # Flask is explicitly checked here
     import flask
 except ImportError:
-    print("Required libraries not found. Installing 'flask', 'diffusers', 'torch', 'sentencepiece', 'accelerate', 'bitsandbytes', 'transformers', and 'optimum[quanto]'...")
-    install_command = "pip install Flask diffusers torch sentencepiece accelerate bitsandbytes transformers 'optimum[quanto]'"
+    print("Required libraries not found. Installing 'flask', 'diffusers', 'torch', 'accelerate', 'einops', 'timm', and 'transformers'...")
+    install_command = "pip install Flask diffusers torch accelerate einops timm transformers"
     print(f"Executing: {install_command}")
     os.system(install_command)
     try:
         # Re-import after installation attempt
-        from diffusers import FluxPipeline, FluxTransformer2DModel
-        from transformers import T5EncoderModel, CLIPTextModel
-        from optimum.quanto import freeze, qfloat8, quantize
+        from diffusers import DiffusionPipeline
+        from omnigen2.pipelines.omnigen2.pipeline_omnigen2 import OmniGen2Pipeline
+        from omnigen2.models.transformers.transformer_omnigen2 import OmniGen2Transformer2DModel
         import torch
         import accelerate
-        import bitsandbytes
         import flask
         print("Libraries installed and imported successfully.")
     except ImportError as e:
         print(f"\nFailed to import all necessary libraries even after attempting installation: {e}")
         print("Please ensure your Python environment is compatible with required packages and check installation guides.")
-        print("For bitsandbytes on Windows/WSL, you might need specific versions or pre-compiled wheels.")
+        print("Please verify that all dependencies are compatible with your system.")
         exit(1)
 # --- End library check ---
 
 app = Flask(__name__)
 
 # Global pipeline variable
-flux_pipeline = None
+omnigen_pipeline = None
 models_loaded = False
 # Directory to store generated images
 IMAGES_DIR = "generated_images"
 os.makedirs(IMAGES_DIR, exist_ok=True)
 
 def load_models():
-    """Load the FLUX model once at startup."""
-    global flux_pipeline, models_loaded
+    """Load the OmniGen2 model once at startup."""
+    global omnigen_pipeline, models_loaded
 
     try:
-        print("Loading FLUX model components...")
+        print("Loading OmniGen2 model components...")
 
-        bfl_repo = "black-forest-labs/FLUX.1-schnell"
+        model_path = "OmniGen2/OmniGen2"
         dtype = torch.bfloat16
 
-        transformer = FluxTransformer2DModel.from_single_file(
-            "https://huggingface.co/Kijai/flux-fp8/blob/main/flux1-schnell-fp8-e4m3fn.safetensors",
+        omnigen_pipeline = OmniGen2Pipeline.from_pretrained(
+            model_path,
             torch_dtype=dtype,
+            trust_remote_code=True,
         )
-        quantize(transformer, weights=qfloat8)
-        freeze(transformer)
-
-        text_encoder_2 = T5EncoderModel.from_pretrained(
-            bfl_repo, subfolder="text_encoder_2", torch_dtype=dtype
+        omnigen_pipeline.transformer = OmniGen2Transformer2DModel.from_pretrained(
+            model_path,
+            subfolder="transformer",
+            torch_dtype=dtype,
+            trust_remote_code=True,
         )
-        quantize(text_encoder_2, weights=qfloat8)
-        freeze(text_encoder_2)
 
-        flux_pipeline = FluxPipeline.from_pretrained(
-            bfl_repo, transformer=None, text_encoder_2=None, torch_dtype=dtype
-        )
-        flux_pipeline.transformer = transformer
-        flux_pipeline.text_encoder_2 = text_encoder_2
-
-        # Offload the text encoder to the CPU to save GPU memory
-        flux_pipeline.text_encoder_2.to("cpu")
-
-        flux_pipeline.enable_model_cpu_offload()
-        print("FLUX model loaded successfully.")
+        omnigen_pipeline.enable_model_cpu_offload()
+        print("OmniGen2 model loaded successfully.")
 
         models_loaded = True
         print("Model initialized and ready for requests.")
@@ -98,7 +86,7 @@ def load_models():
 @app.route('/generate', methods=['POST'])
 def generate_image():
     """
-    API endpoint to generate an image based on a text prompt using the FLUX model.
+    API endpoint to generate an image based on a text prompt using the OmniGen2 model.
     Expects a JSON body with a 'prompt' key.
     Returns a base64 encoded image string.
     """
@@ -139,13 +127,12 @@ def generate_image():
     try:
         # Generate the image
         print(f"Generating image for prompt: '{prompt}' with seed: {seed}")
-        generated_image = flux_pipeline(
+        generated_image = omnigen_pipeline(
             prompt=prompt,
             height=1024,
             width=1024,
-            guidance_scale=0.0,
-            num_inference_steps=4,
-            max_sequence_length=256,
+            num_inference_steps=50,
+            max_sequence_length=1024,
             generator=torch.Generator("cpu").manual_seed(seed)
         ).images[0]
         print("Image generated.")
@@ -171,7 +158,7 @@ def generate_image():
 @app.route('/generate_and_upscale', methods=['POST'])
 def generate_and_upscale_image():
     """
-    API endpoint maintained for backward compatibility. Uses the FLUX model to
+    API endpoint maintained for backward compatibility. Uses the OmniGen2 model to
     generate a 1024x1024 image. No separate upscaling step is performed.
     """
     if not models_loaded:
@@ -209,15 +196,14 @@ def generate_and_upscale_image():
         })
 
     try:
-        # Generate the image with FLUX
+        # Generate the image with OmniGen2
         print(f"Generating image for prompt: '{prompt}' with seed: {seed}")
-        upscaled_image = flux_pipeline(
+        upscaled_image = omnigen_pipeline(
             prompt=prompt,
             height=1024,
             width=1024,
-            guidance_scale=0.0,
-            num_inference_steps=4,
-            max_sequence_length=256,
+            num_inference_steps=50,
+            max_sequence_length=1024,
             generator=torch.Generator("cpu").manual_seed(seed)
         ).images[0]
         print("Image generated.")
