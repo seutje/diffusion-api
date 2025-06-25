@@ -1,6 +1,6 @@
 # Diffusion API
 
-This repository provides a simple Flask API for generating images using the FLUX diffusion model. The `/generate` and `/generate_and_upscale` endpoints accept a JSON body containing a `prompt` and an optional `seed`.
+This repository provides a simple Flask API for generating images using the FLUX diffusion model. The `/generate` endpoint accepts a JSON body containing a `prompt` and an optional `seed`. The `/upscale` endpoint upscales a base64 image using the `stabilityai/stable-diffusion-x4-upscaler` model.
 
 Generated images are cached on disk under `generated_images/`. When a request is made with the same prompt and seed combination, the API returns the cached image instead of re-running the model.
 
