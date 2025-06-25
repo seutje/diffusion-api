@@ -52,11 +52,14 @@ def load_models():
     try:
         print("Loading HiDream-I1-Fast model components...")
 
-        hidream_repo = "HiDream-ai/HiDream-I1-Fast"
+        hidream_repo = os.environ.get("HIDREAM_REPO", "HiDream-ai/HiDream-I1-Fast")
         dtype = torch.float16
 
         hidream_pipeline = DiffusionPipeline.from_pretrained(
-            hidream_repo, torch_dtype=dtype
+            hidream_repo,
+            torch_dtype=dtype,
+            variant="fp16",
+            use_safetensors=True,
         )
 
         # Enable CPU offload if available (works with accelerate)
@@ -68,7 +71,7 @@ def load_models():
 
     except Exception as e:
         print(f"Error loading models: {e}")
-        print("Please check your environment, driver setup, and ensure sufficient memory.")
+        print("Set the HIDREAM_REPO environment variable to a local path or accessible Hugging Face repo if downloads fail.")
         models_loaded = False
 
 # --- API Endpoints ---

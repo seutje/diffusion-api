@@ -10,6 +10,10 @@ Run the API with:
 python run_api.py
 ```
 
+To load the model from a custom location, set the `HIDREAM_REPO` environment
+variable to a local directory or alternate Hugging Face repository before
+starting the server.
+
 Use the helper script to call the API:
 
 ```bash
