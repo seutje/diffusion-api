@@ -60,8 +60,9 @@ def load_models():
         bfl_repo = "black-forest-labs/FLUX.1-schnell"
         dtype = torch.bfloat16
 
-        transformer = FluxTransformer2DModel.from_single_file(
-            "https://huggingface.co/Kijai/flux-fp8/blob/main/flux1-schnell-fp8-e4m3fn.safetensors",
+        transformer = FluxTransformer2DModel.from_pretrained(
+            bfl_repo,
+            subfolder="transformer",
             torch_dtype=dtype,
         )
         quantize(transformer, weights=qfloat8)
